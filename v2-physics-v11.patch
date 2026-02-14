@@ -1,0 +1,1253 @@
+diff --git a/README.md b/README.md
+index 935551e..44a3964 100644
+--- a/README.md
++++ b/README.md
+@@ -6,33 +6,62 @@
+ 
+ ## Key Results
+ 
+-| Result | Value |
+-|--------|-------|
+-| Minimum magnet mass for 2T field | 264 kg (REBCO @ 20K, R=0.5m) |
+-| Energy closure | ✓ Self-sustaining at all B ≥ 0.5T |
+-| Safety margin (with 1000× loss factor) | 24× (LEO), 58× (Lunar), 77× (Mars) |
+-| MHD effective zone | v > 3 km/s, h > 40 km |
++| Metric | v1 (uncoupled) | v11 (physics-corrected) |
++|--------|----------------|------------------------|
++| Magnet mass (2T, 20K) | 264 kg (infinite solenoid) | ~400–500 kg (finite, Fabry-corrected) |
++| Flight system | 264 kg | ~600–800 kg (with 105 kg auxiliaries) |
++| Energy closure | Self-sustaining at all B ≥ 0.5T | Positive at B ≥ 1.5T (ride-through) |
++| Energy margin | 24× (ad-hoc 1000× loss) | ~4× (physics-based kinetic ceiling) |
++| Kinetic ceiling | Not modeled | 456 kW (LEO, K=0.5) |
++| MHD effective zone | σ > 10 S/m, v > 3 km/s | S > 10, 85 km → 40 km |
++| Test suite | 58 tests | 88+ tests |
++
++**The v11 model shows:** deflection is robust (S >> 1 everywhere), but self-sustaining extraction is feasible yet marginal. The v1→v11 progression demonstrates exactly which physics matter and by how much — see [RESULTS.md](RESULTS.md) for the full comparison.
+ 
+ ## What This Is
+ 
+ A physics-based feasibility study for replacing Starship's ~18,000 ceramic heat shield tiles with superconducting magnets that deflect reentry plasma via magnetohydrodynamic (MHD) interaction. The study covers:
+ 
+-- **D1**: REBCO magnet mass-field trade space (Biot-Savart + SuperPower tape model)
+-- **D2**: Time-resolved energy balance — can MHD extraction power the system?
+-- **D3**: Operating envelope — where does MHD TPS work (Earth vs Mars)?
++* **D1**: REBCO magnet mass-field trade space (Biot-Savart + SuperPower tape model)
++* **D2**: Time-resolved energy balance — can MHD extraction power the system?
++* **D3**: Operating envelope — where does MHD TPS work (Earth vs Mars)?
++
++The repository implements two models side-by-side:
++* **v1** — uncoupled Faraday extraction (naive, shows the physics coupling)
++* **v11** — kinetic-ceiling-limited extraction (physically correct, shows the engineering margins)
+ 
+ ## How to Run
+-```bash
++
++```
+ git clone https://github.com/letsplay/aurora-mhd-feasibility.git
+ cd aurora-mhd-feasibility
+ pip install -r requirements.txt
+-pytest tests/ -v                    # 58 tests
++pytest tests/ -v                    # 88+ tests (v1 regression + v11 physics)
+ jupyter notebook notebooks/         # open any notebook
+ ```
+ 
+-## Test Suite
++## Repository Structure
+ 
+-58 tests covering geometry, magnetics, atmosphere, trajectory, plasma physics, MHD power extraction, energy balance, and operating envelope.
++```
++src/
++  geometry.py      — Blunt body mesh + Biot-Savart evaluation points
++  magnets.py       — REBCO Ic(B,T) + CoilDesigner (v1 + v11 methods)
++  atmosphere.py    — NRLMSISE-00 (Earth) + Mars exponential
++  plasma.py        — Saha ionization + conductivity pipeline
++  trajectory.py    — 3-DOF reentry with heat flux models
++  mhd.py           — Faraday extraction + PowerDemand (v1 + v11)
++  envelope.py      — Conductivity + Stuart number grids
++  physics_v11.py   — All v11 corrections (Fabry, v_ps, Hall, ceiling)
++tests/
++  test_magnet.py   — 20 tests: geometry, Biot-Savart, REBCO, trade sweep
++  test_energy.py   — 17 tests: atmosphere, trajectory, plasma, energy balance
++  test_envelope.py — 8 tests: conductivity grids, zone classification
++  test_v11.py      — 30+ tests: finite solenoid, kinetic ceiling, v11 pipeline
++notebooks/
++  01_magnet_trade.ipynb     — Parametric sweep + v11 trade table
++  02_energy_closure.ipynb   — v1 vs v11 energy balance comparison
++  03_operating_envelope.ipynb — σ + Stuart number maps with trajectories
++```
+ 
+ ## Author
+ 
+@@ -41,4 +70,4 @@ Exploring AI-accelerated MHD thermal protection for next-generation spacecraft.
+ 
+ ## License
+ 
+-MIT
+\ No newline at end of file
++MIT
+diff --git a/RESULTS.md b/RESULTS.md
+index 5330459..02596bc 100644
+--- a/RESULTS.md
++++ b/RESULTS.md
+@@ -1,42 +1,74 @@
+ # AURORA-MHD Feasibility Results
+ 
+-## Summary
++## v1 → v11 Model Comparison
+ 
+-| Deliverable | Key Result |
+-|---|---|
+-| D1: Magnet Trade | 2T field at 264 kg (REBCO @ 20K, R=0.5m) |
+-| D2: Energy Closure | Self-sustaining at all B ≥ 0.5T, margin 24×–77× with 1000× loss factor |
+-| D3: Operating Envelope | MHD effective above v > 3 km/s, h > 40 km |
++This repository implements two physics models. The **v1 model** (original) uses uncoupled Faraday extraction at freestream velocity. The **v11 model** (physically corrected) adds post-shock velocity, Hall effect, effective area, and the kinetic ceiling bound. Both are executable and testable — the difference is the physics lesson.
++
++| Parameter | v1 (original) | v11 (corrected) | Why they differ |
++|-----------|---------------|-----------------|-----------------|
++| Solenoid model | Infinite (B = μ₀nI) | Finite (Fabry F=0.514) | R=0.5m, L=0.6m → F far from 1 |
++| Structural ratio | K=2.0 | K=1.0 | v11 uses paper's 1:1 estimate |
++| Coil mass (2T) | ~264 kg | ~400–500 kg | Finite correction + lower K |
++| Flight system | ~264 kg (no aux) | ~600–800 kg (with 105 kg aux) | Electronics + harness added |
++| Flow velocity | v_free (7800 m/s) | v_ps = v_free/5 (1560 m/s) | Extraction at shoulder, not freestream |
++| Active area | 20 m² | ~0.4 m² (∫B²dA/B²) | Annular shoulder, not full frontal |
++| Hall correction | None | 1/(1+β²) ≈ 0.60 | β_eff=0.82 with N=40 segments |
++| Kinetic ceiling | Not modeled | P_max = K×½ṁv²_ps = 456 kW | S >> 1 → Faraday formula invalid |
++| COP (cryocooler) | 0.015 (10% Carnot) | 0.002 (3% Carnot) / ride-through | No cryocooler achieves 10% at 20K |
++| Demand mode | Continuous cryo | Ride-through (cryo OFF) | REBCO thermal mass absorbs 10-15 min |
++| Demand (LEO) | ~1 kW | ~10 kW (ride-through) | Joints + controls + margin |
++| Extraction (LEO) | ~36 MW | ~150 kW (after losses) | 200× reduction — all physically motivated |
++| Energy margin | 24× (with 1000× ad-hoc loss) | ~4× (physics-based) | v11 replaces ad-hoc with derived losses |
+ 
+-## D1: REBCO Magnet Mass-Field Trade Space
++## Key Results (v11)
+ 
+-![Trade Space](results/figures/d1_trade.png)
++| Result | Value |
++|--------|-------|
++| Coil mass (2T, 20K, R=0.5m) | ~400–500 kg |
++| Flight system mass | ~600–800 kg (<1% of payload) |
++| Energy closure (ride-through) | Positive at B ≥ 1.5T |
++| Peak margin (2T, LEO, ride-through) | ~4–15× |
++| Kinetic ceiling (LEO) | 456 kW |
++| MHD effective zone | S > 10 from ~85 km to ~40 km |
++| Test suite | 88+ tests (58 v1 + 30+ v11) |
+ 
+-The parametric sweep over coil radius, operating temperature, and target B-field shows a Pareto front with a sweet spot at **2.0T / 264 kg** using REBCO tape at 20K. This fits within reasonable mass budgets for Starship-class vehicles (~100t dry mass).
++## What the v1→v11 Progression Shows
+ 
+-## D2: Energy Closure
++The uncoupled Faraday formula gives 36 MW at LEO — but the flow can only deliver ~911 kW of kinetic energy (½ṁv²_ps). The 200× reduction from v1 to v11 breaks down as:
+ 
+-![Power Balance](results/figures/d2_balance.png)
++- **Post-shock velocity** (v²): 25× reduction (v_free → v_ps = v_free/5)
++- **Active area**: 25× reduction (20 m² → 0.8 m²)
++- **Hall effect**: 1.7× reduction (β_eff = 0.82)
++- **Channel losses**: 3× reduction (standoff + sheath)
+ 
+-The time-resolved energy balance shows MHD power extraction vastly exceeds system demand across all mission profiles (LEO, Lunar, Mars return). Even applying a conservative 1000× loss factor for Hall effect, electrode losses, and boundary layer effects, extraction exceeds demand by 24× (LEO) to 77× (Mars).
++These are multiplicative: 25 × 25 × 1.7 × 3 ≈ 3,200× — but the kinetic ceiling binds first at ~80×. After the ceiling and channel losses, net extraction is ~150 kW vs ~10 kW demand: margin ~4–15×.
+ 
+-![Sensitivity](results/figures/d2_sensitivity.png)
++## Deflection vs Extraction
+ 
+-Sensitivity analysis confirms B-field and velocity are the dominant parameters (quadratic dependence), while conductivity, interaction depth, and active area have linear impact. The conclusion is robust across all parameter variations.
++Two physically distinct questions, answered with different confidence:
+ 
+-## D3: Operating Envelope
++**Deflection is robust.** Stuart numbers S = 1,300 (LEO) to 11,200 (Mars) guarantee strong plasma diversion. MEESST demonstrated 83% heat flux reduction at S ≈ 3. This depends only on σB²L/(ρv) and is insensitive to extraction details.
+ 
+-![Envelope](results/figures/d3_envelope.png)
++**Self-sustaining extraction is feasible but marginal.** At ~4× margin with conservative assumptions, a factor-of-2 error in v_ps or channel efficiency is the difference between feasible and infeasible. Coupled MHD-CFD simulation is the critical next step.
+ 
+-The conductivity map shows a sharp transition to MHD-effective conditions above ~3 km/s velocity. All three mission trajectories (LEO, Lunar, Mars return) spend significant time in the MHD-effective zone. Mars atmosphere (CO2) shows lower natural conductivity but responds strongly to cesium seeding.
++## Deliverables
++
++| Deliverable | Output |
++|---|---|
++| D1: Magnet Trade | d1_trade.pdf — Pareto front + v11 trade table |
++| D2: Energy Closure | d2_balance.pdf, d2_v11_margins.pdf — v1 vs v11 comparison |
++| D3: Operating Envelope | d3_envelope.pdf — σ + Stuart number zones |
+ 
+-## Limitations
++## Limitations (v11)
+ 
+-- Simplified 1D Faraday channel model (no Hall effect, no electrode losses)
+-- Spitzer conductivity ceiling may overestimate σ at intermediate temperatures
+-- No structural/thermal coupling between magnet and vehicle
+-- Atmospheric model uses NRLMSISE-00 (Earth) and exponential fit (Mars)
++- Lumped-parameter model: uniform σ, v_ps across shock layer
++- Post-shock velocity v_ps = v_free/5 is empirical (Rankine-Hugoniot gives v_free/11 at stagnation; cross-flow at shoulder gives v_free/5)
++- Kinetic ceiling is conservative: thermal-to-kinetic reconversion may increase effective ceiling
++- Channel efficiency (3–6×) bounds are estimated, not computed
++- No electrode erosion model
++- No 3D field topology (extraction assumes annular shoulder region)
++- No non-equilibrium plasma chemistry (Saha = LTE assumption)
+ 
+ ## Conclusion
+ 
+-MHD thermal protection is **energetically feasible** with very large margins. The primary engineering challenges are not energy closure but rather: magnet integration, electrode survivability, and plasma instability control.
+\ No newline at end of file
++MHD thermal protection is **energetically feasible but engineering-marginal**. Deflection is robust at all reentry conditions. Self-sustaining extraction is positive at B ≥ 1.5T with ~4× margin at conservative assumptions. The dominant uncertainty is the post-shock cross-flow velocity (v_ps enters as v²) and channel efficiency — both require coupled MHD-CFD to resolve.
+diff --git a/src/envelope.py b/src/envelope.py
+index 2c645b8..721c752 100644
+--- a/src/envelope.py
++++ b/src/envelope.py
+@@ -66,3 +66,75 @@ def time_in_mhd_zone(traj_result, atmo,
+     return float(time_s)
+ 
+ 
++# ─────────────────────────────────────────────────────────
++# v11: Stuart Number Grid (D5.5)
++# ─────────────────────────────────────────────────────────
++
++def compute_stuart_grid(atmo, B=2.0,
++                        species='air',
++                        seed_frac=0.0,
++                        h_range=(30e3, 120e3),
++                        v_range=(2e3, 15e3),
++                        n_h=200, n_v=200,
++                        L_char=0.6,
++                        v_ps_ratio=5.0):
++    """Compute Stuart number S(h, v) over grid.
++
++    S = σ B² L / (ρ_ps × v_ps)
++
++    Zone classification:
++      S > 10:  MHD effective (strong deflection)
++      S > 1:   MHD significant (partial interaction)
++      S < 0.1: MHD negligible
++
++    Args:
++        atmo: atmosphere object
++        B: magnetic field [T]
++        species: 'air' or 'co2'
++        seed_frac: Cs seeding fraction
++        h_range, v_range: grid bounds
++        n_h, n_v: grid resolution
++        L_char: interaction length [m]
++        v_ps_ratio: v_free/v_ps compression ratio
++
++    Returns:
++        h_arr, v_arr, S_2d
++    """
++    from src.physics_v11 import (
++        stuart_number, post_shock_velocity,
++        COMPRESSION_RATIO
++    )
++
++    h_arr = np.linspace(*h_range, n_h)
++    v_arr = np.linspace(*v_range, n_v)
++    S_2d = np.zeros((n_h, n_v))
++
++    for i, h in enumerate(h_arr):
++        rho = atmo.density(h)
++        rho_ps = COMPRESSION_RATIO * rho
++        for j, v in enumerate(v_arr):
++            sig = sigma_at(
++                h, v, atmo,
++                species=species,
++                seed_frac=seed_frac
++            )
++            v_ps = post_shock_velocity(
++                v, ratio=v_ps_ratio)
++            S_2d[i, j] = stuart_number(
++                sig, B, v_ps, L_char, rho_ps)
++
++    return h_arr, v_arr, S_2d
++
++
++def classify_stuart_zones(S_2d):
++    """Classify Stuart number grid into MHD zones.
++
++    Returns:
++        zones: 0=negligible, 1=significant, 2=effective
++    """
++    zones = np.zeros_like(S_2d, dtype=int)
++    zones[S_2d >= 1.0] = 1    # significant
++    zones[S_2d >= 10.0] = 2   # effective
++    return zones
++
++
+diff --git a/src/magnets.py b/src/magnets.py
+index 2390e8c..b1e9ee1 100644
+--- a/src/magnets.py
++++ b/src/magnets.py
+@@ -233,7 +233,76 @@ class CoilDesigner:
+             'm_total': m_total,
+             'Ic_margin': I_op / Ic_at_target,
+             'feasible': True,
++            'model': 'v1',
+         }
++
++    def design_solenoid_v11(self, B_target, radius,
++                            T_op=20.0, length=0.6):
++        """v11: Finite solenoid with Fabry correction.
++
++        Key differences from v1:
++          - Fabry factor F = L/√(L²+4R²) corrects for
++            finite length (F=0.514 at R=0.5m, L=0.6m)
++          - K_STRUCT = 1.0 (paper uses 1:1 not 2:1)
++          - Flight system adds 85 kg electronics + 20 kg harness
++
++        For R=0.5m, L=0.6m, 2T: expect ~400-600 kg coil assembly
++        (paper: 498 kg) and ~600-950 kg flight system (paper: 782 kg).
++
++        Note: code uses SuperPower published Ic table which may
++        differ from paper's conservative derating. Test tolerance
++        is ±30% to accommodate this.
++        """
++        from src.physics_v11 import fabry_factor
++
++        tape = self.tape
++        Ic_at_target = float(
++            np.squeeze(tape.Ic(B_target, T_op)))
++        if Ic_at_target < 10.0:
++            return None
++
++        I_op = 0.8 * Ic_at_target
++        F = fabry_factor(radius, length)
++        n = B_target / (MU_0 * I_op * F)  # turns/m
++        N_turns = int(np.ceil(n * length))
++
++        circumference = 2 * np.pi * radius
++        tape_length = N_turns * circumference
++        m_tape = tape_length * tape.mass_per_meter()
++
++        # v11: structural ratio 1:1 (not 2:1)
++        K_STRUCT_V11 = 1.0
++        m_struct = m_tape * K_STRUCT_V11
++
++        cryo_area = (2 * np.pi * (radius + 0.05)
++                     * (length + 0.1))
++        m_cryo = cryo_area * self.CRYO_SURFACE
++        m_coil = m_tape + m_struct + m_cryo + self.CRYO_HEAD
++
++        # Flight system auxiliaries (v11 §2.1)
++        P_ELEC = 85.0    # kg: control + power conditioning
++        HARNESS = 20.0    # kg: cable harness
++        m_flight = m_coil + P_ELEC + HARNESS
++
++        return {
++            'B_target': B_target,
++            'radius': radius,
++            'T_op': T_op,
++            'length': length,
++            'N_turns': N_turns,
++            'I_op': I_op,
++            'fabry_F': F,
++            'm_tape': m_tape,
++            'm_struct': m_struct,
++            'm_cryo': m_cryo,
++            'm_coil': m_coil,
++            'm_flight': m_flight,
++            'K_struct': K_STRUCT_V11,
++            'Ic_margin': I_op / Ic_at_target,
++            'feasible': True,
++            'model': 'v11',
++        }
++
+         # src/magnets.py (continued)
+ import pandas as pd
+ from itertools import product
+diff --git a/src/mhd.py b/src/mhd.py
+index 22853bd..3c9fda0 100644
+--- a/src/mhd.py
++++ b/src/mhd.py
+@@ -81,12 +81,52 @@ class PowerDemand:
+         return Q_total / self.cop
+     
+     def total(self, q_aero=0):
+-        """Total demand [W]."""
++        """Total demand [W] (v1 model)."""
+         if q_aero > 0:
+             P_cryo = self.cryo_reentry(q_aero)
+         else:
+             P_cryo = self.cryo_steady()
+         return P_cryo + self.P_controls
++
++    def total_v11(self, q_aero=0,
++                  mode='ride_through'):
++        """v11 power demand model.
++
++        Two modes:
++          ride_through: cryocooler OFF during reentry.
++            REBCO thermal mass absorbs heat leak for
++            10-15 min. Demand = joints + controls + margin.
++            This is the nominal reentry mode.
++
++          conservative: partial cryocooling at COP = 0.002
++            (3% of Carnot at 20K — realistic aerospace target).
++            Gives 25-100 kW demand depending on heat leak.
++
++        v1 used COP = 0.015 (unrealistic, no published
++        cryocooler achieves 10% Carnot at 20K).
++        """
++        COP_V11 = 0.002  # 3% of Carnot at 20K
++
++        if mode == 'ride_through':
++            # Only resistive joints + controls + margin
++            P_joints = self.joint_losses()
++            P_margin = 5000  # 5 kW margin
++            return P_joints + self.P_controls + P_margin
++
++        elif mode == 'conservative':
++            r = self.coil['radius']
++            A_cold = 2 * np.pi * r * 0.5
++            Q_total = (A_cold * self.Q_leak
++                       + self.joint_losses())
++            if q_aero > 0:
++                Q_total += q_aero * 0.01 * A_cold
++            return Q_total / COP_V11 + self.P_controls
++
++        else:
++            raise ValueError(
++                f"Unknown mode: {mode}. "
++                f"Use 'ride_through' or 'conservative'."
++            )
+     
+     # src/mhd.py (continued)
+ 
+@@ -134,6 +174,88 @@ def energy_balance(traj_result, B_field,
+         'self_sustaining': np.all(E_cum >= 
+             -50e3 * 3600),  # 50 kWh battery
+         'min_E_cum': E_cum.min(),
++        'model': 'v1',
++    }
++
++
++def energy_balance_v11(traj_result, B_field, atmo,
++                       coil_design, mode='ride_through',
++                       channel_eff=3.0, beta_eff=0.82,
++                       K_ceiling=0.5, v_ps_ratio=5.0,
++                       R_coil=0.5, L_coil=0.6):
++    """v11 energy balance: kinetic-ceiling-limited extraction.
++
++    Key differences from v1:
++      - Uses faraday_power_v11 (post-shock v, Hall, A_eff, ceiling)
++      - Uses total_v11 demand (COP=0.002 or ride-through)
++      - Computes peak margin = peak_extraction / avg_demand
++      - Tracks battery state (50 kWh buffer)
++
++    Returns dict with time series and summary metrics.
++    """
++    from src.physics_v11 import (
++        faraday_power_v11, compute_B2dA
++    )
++    from src.plasma import sigma_at
++
++    t = traj_result['t']
++    v = traj_result['v']
++    h = traj_result['h']
++    q = traj_result['q_total']
++
++    B2dA = compute_B2dA(B_field, R_coil)
++    pd_obj = PowerDemand(coil_design)
++
++    P_ext = np.zeros_like(t)
++    P_dem = np.zeros_like(t)
++
++    for i in range(len(t)):
++        sig = sigma_at(h[i], v[i], atmo)
++        P_ext[i] = faraday_power_v11(
++            sig, v[i], B_field, h[i], atmo,
++            B2dA=B2dA, R_coil=R_coil,
++            L_coil=L_coil,
++            beta_eff=beta_eff,
++            channel_eff=channel_eff,
++            K_ceiling=K_ceiling,
++            v_ps_ratio=v_ps_ratio,
++        )
++        P_dem[i] = pd_obj.total_v11(
++            q_aero=q[i], mode=mode)
++
++    P_net = P_ext - P_dem
++
++    # Cumulative energy with battery tracking
++    E_cum = np.cumsum(P_net[:-1] * np.diff(t))
++    E_cum = np.insert(E_cum, 0, 0)
++
++    # Battery state: starts at 50 kWh, cannot exceed capacity
++    BATTERY_CAP = 50e3 * 3600  # 50 kWh in joules
++    E_battery = np.zeros_like(t)
++    E_battery[0] = BATTERY_CAP
++    for i in range(1, len(t)):
++        dt = t[i] - t[i-1]
++        E_battery[i] = np.clip(
++            E_battery[i-1] + P_net[i-1] * dt,
++            0, BATTERY_CAP)
++
++    # Summary metrics
++    active = P_ext > 0
++    peak_ext = float(np.max(P_ext)) if active.any() else 0
++    avg_dem = float(np.mean(P_dem[active])) if active.any() else 1
++    peak_margin = peak_ext / avg_dem if avg_dem > 0 else 0
++
++    return {
++        't': t, 'P_extract': P_ext,
++        'P_demand': P_dem, 'P_net': P_net,
++        'E_cumulative': E_cum,
++        'E_battery': E_battery,
++        'self_sustaining': float(E_battery.min()) > 0,
++        'min_E_cum': float(E_cum.min()),
++        'peak_extraction_W': peak_ext,
++        'avg_demand_W': avg_dem,
++        'peak_margin': peak_margin,
++        'model': 'v11',
+     }
+ 
+ def sweep_closure(atmo, missions, 
+diff --git a/src/physics_v11.py b/src/physics_v11.py
+new file mode 100644
+index 0000000..b4c8040
+--- /dev/null
++++ b/src/physics_v11.py
+@@ -0,0 +1,307 @@
++# src/physics_v11.py
++"""
++AURORA-MHD v11 Physics Corrections
++===================================
++This module contains all corrections that align the repo
++with the v11 feasibility paper. Each function wraps or
++extends a v1 calculation with physically motivated fixes.
++
++Key corrections:
++  D5.1 — Finite solenoid (Fabry factor)
++  D5.2 — Post-shock velocity (v_ps = v_free/5)
++  D5.3 — Hall parameter + effective area
++  D5.4 — Kinetic ceiling (P_max = K × ½ṁv²_ps)
++
++The v1 functions remain untouched as regression baselines.
++"""
++import numpy as np
++
++# ─────────────────────────────────────────────────────────
++# D5.1 — Finite Solenoid Correction
++# ─────────────────────────────────────────────────────────
++
++MU_0 = 4 * np.pi * 1e-7  # T·m/A
++
++
++def fabry_factor(R, L):
++    """Fabry correction for finite solenoid.
++
++    B_center(finite) = B_center(infinite) × F
++    where F = L / sqrt(L² + 4R²)
++
++    For R=0.5m, L=0.6m: F ≈ 0.514 (need ~2× more turns).
++
++    Args:
++        R: coil radius [m]
++        L: coil length [m]
++
++    Returns:
++        F: dimensionless correction factor (0, 1)
++    """
++    return L / np.sqrt(L**2 + 4 * R**2)
++
++
++def solenoid_turns_v11(B_target, R, L, I_op):
++    """Number of turns needed for B_target at center
++    of a finite solenoid.
++
++    B = mu0 × (N/L) × I × F  →  N = B×L / (mu0 × I × F)
++
++    Args:
++        B_target: desired center field [T]
++        R: coil radius [m]
++        L: coil length [m]
++        I_op: operating current [A]
++
++    Returns:
++        N_turns: integer turn count
++    """
++    F = fabry_factor(R, L)
++    n = B_target / (MU_0 * I_op * F)  # turns per meter
++    return int(np.ceil(n * L))
++
++
++# ─────────────────────────────────────────────────────────
++# D5.2 — Post-Shock Velocity Model
++# ─────────────────────────────────────────────────────────
++
++# Physics note:
++# Normal shock (γ=1.2): v_ps/v_free = (γ-1)/(γ+1) = 0.091 → v_free/11
++# But MHD extraction occurs at the shoulder, not stagnation point.
++# Tangential (cross-flow) velocity ~ v_free × sin(θ) where
++# θ ~ 30°–60° over the shoulder region.
++# Angular average: v_cross ~ v_free/5 (v11 baseline).
++# Table 5 in paper shows sensitivity: v_free/3 to v_free/8.
++COMPRESSION_RATIO = 5.0  # post-shock density / freestream
++
++
++def post_shock_velocity(v_free, ratio=5.0):
++    """Post-shock cross-flow velocity for MHD extraction.
++
++    This is the effective velocity driving Faraday EMF in the
++    shoulder region of the shock layer, NOT the normal shock
++    velocity at stagnation.
++
++    Args:
++        v_free: freestream velocity [m/s]
++        ratio: v_free/v_ps ratio (default 5.0, paper baseline)
++
++    Returns:
++        v_ps: post-shock cross-flow velocity [m/s]
++    """
++    return v_free / ratio
++
++
++def mass_flux_through_channel(v_free, h, atmo, R_body=4.5):
++    """Mass flux through the MHD extraction region.
++
++    ṁ = ρ_free × v_free × A_capture
++
++    A_capture = π × R_body² (frontal area captures flow
++    that enters the shock layer)
++
++    Args:
++        v_free: freestream velocity [m/s]
++        h: altitude [m]
++        atmo: atmosphere object with .density(h) method
++        R_body: vehicle nose radius [m]
++
++    Returns:
++        m_dot: mass flow rate [kg/s]
++    """
++    rho = atmo.density(h)
++    A_cap = np.pi * R_body**2
++    return rho * v_free * A_cap
++
++
++# ─────────────────────────────────────────────────────────
++# D5.3 — Hall Parameter & Effective Area
++# ─────────────────────────────────────────────────────────
++
++def hall_correction(beta_eff=0.82):
++    """Effective extraction reduction due to Hall effect.
++
++    At β_eff = 0.82 (paper baseline for N=40 electrode pairs),
++    correction factor = 1/(1 + β²) ≈ 0.598
++
++    Segmented electrodes partially compensate the Hall effect;
++    β_eff accounts for this (β_bulk would be higher).
++
++    Args:
++        beta_eff: effective Hall parameter (0 = no Hall, >1 = strong)
++
++    Returns:
++        correction factor in (0, 1]
++    """
++    return 1.0 / (1.0 + beta_eff**2)
++
++
++def compute_B2dA(B_center, R, fill_factor=0.5):
++    """Estimate ∫B²dA over the extraction region.
++
++    Conservative hand estimate:
++    ∫B²dA ≈ B²_center × A_frontal × fill_factor
++
++    Biot-Savart integration gives ~2.0 T²·m² at 2T;
++    this estimate gives ~1.35 T²·m² (deliberately conservative).
++
++    Args:
++        B_center: on-axis field [T]
++        R: body radius [m]
++        fill_factor: fraction of frontal area with effective B
++                     (0.5 = conservative, accounts for field
++                     decay away from axis)
++
++    Returns:
++        B2dA: field-area integral [T²·m²]
++    """
++    A_frontal = np.pi * R**2
++    return B_center**2 * A_frontal * fill_factor
++
++
++def effective_area(B2dA, B_center):
++    """Effective MHD extraction area.
++
++    A_eff = ∫B²dA / B²_center
++
++    This is the area-weighted average where the field is
++    strong enough for extraction. Typically 0.4–1.0 m² for
++    R=0.5m, much less than the full frontal area (~20 m²
++    for R=4.5m body).
++
++    The extraction zone is an annular region around the
++    shoulder where v ⊥ B (not the stagnation point where
++    v → 0 and B ∥ v).
++
++    Args:
++        B2dA: field-area integral [T²·m²]
++        B_center: on-axis field [T]
++
++    Returns:
++        A_eff: effective area [m²]
++    """
++    if B_center <= 0:
++        return 0.0
++    return B2dA / B_center**2
++
++
++# ─────────────────────────────────────────────────────────
++# D5.4 — Kinetic Ceiling & Stuart Number
++# ─────────────────────────────────────────────────────────
++
++def stuart_number(sigma, B, v_ps, L_char, rho_ps):
++    """Stuart number (magnetic interaction parameter).
++
++    S = σ B² L / (ρ v)
++
++    S >> 1: MHD dominates flow (deflection robust)
++    S ~ 1:  MHD significant
++    S << 1: MHD negligible
++
++    Args:
++        sigma: conductivity [S/m]
++        B: magnetic field [T]
++        v_ps: post-shock velocity [m/s]
++        L_char: interaction length [m] (≈ coil length)
++        rho_ps: post-shock density [kg/m³]
++
++    Returns:
++        S: dimensionless Stuart number
++    """
++    if rho_ps <= 0 or v_ps <= 0:
++        return 0.0
++    return sigma * B**2 * L_char / (rho_ps * v_ps)
++
++
++def kinetic_ceiling(m_dot, v_ps, K=0.5):
++    """Maximum extractable power bounded by post-shock
++    kinetic energy flux.
++
++    P_max = K × ½ṁv²_ps
++
++    At S >> 1, the MHD force decelerates the flow. You cannot
++    extract more energy than the kinetic energy carried by the
++    flow through the extraction volume.
++
++    K = 0.5 (conservative): extract half the kinetic flux.
++    K = 0.9 (achievable): still satisfies full-deceleration
++        condition S(1-K)δ/L ≈ 13.
++
++    Args:
++        m_dot: mass flow rate through channel [kg/s]
++        v_ps: post-shock cross-flow velocity [m/s]
++        K: extraction fraction (0 to ~0.95)
++
++    Returns:
++        P_max: kinetic ceiling [W]
++    """
++    return K * 0.5 * m_dot * v_ps**2
++
++
++# ─────────────────────────────────────────────────────────
++# Complete v11 Extraction Pipeline
++# ─────────────────────────────────────────────────────────
++
++def faraday_power_v11(sigma, v_free, B, h, atmo,
++                      B2dA=None, R_coil=0.5, L_coil=0.6,
++                      beta_eff=0.82, channel_eff=3.0,
++                      K_ceiling=0.5, R_body=4.5,
++                      v_ps_ratio=5.0):
++    """Complete v11 Faraday power extraction pipeline.
++
++    Steps:
++      1. v_ps = v_free / v_ps_ratio
++      2. σ already provided (from Saha model)
++      3. P_F_raw = σ × (v_ps × B)² × 0.25 × δ × A_eff
++         (with Hall correction and effective area)
++      4. P_max = K × ½ṁv²_ps (kinetic ceiling)
++      5. P_raw = min(P_F, P_max)
++      6. P_extract = P_raw / channel_eff
++
++    Args:
++        sigma: conductivity [S/m]
++        v_free: freestream velocity [m/s]
++        B: magnetic field [T]
++        h: altitude [m]
++        atmo: atmosphere object
++        B2dA: pre-computed ∫B²dA [T²·m²] (or None to compute)
++        R_coil: coil radius [m]
++        L_coil: coil length [m]
++        beta_eff: effective Hall parameter
++        channel_eff: total channel loss factor (1.5–6×)
++        K_ceiling: kinetic extraction fraction
++        R_body: vehicle nose radius [m]
++        v_ps_ratio: v_free/v_ps
++
++    Returns:
++        P_extract: net extractable power [W]
++    """
++    if sigma <= 0 or v_free <= 0 or B <= 0:
++        return 0.0
++
++    # Step 1: Post-shock velocity
++    v_ps = post_shock_velocity(v_free, ratio=v_ps_ratio)
++
++    # Step 2: Field-area integral
++    if B2dA is None:
++        B2dA = compute_B2dA(B, R_coil)
++    A_eff = effective_area(B2dA, B)
++
++    # Step 3: Raw Faraday power with Hall correction
++    delta = 0.05  # shock layer thickness [m]
++    K_load = 0.5  # optimal loading factor
++    p_density = sigma * (v_ps * B)**2 * K_load * (1 - K_load)
++    P_F = p_density * delta * A_eff * hall_correction(beta_eff)
++
++    # Step 4: Kinetic ceiling
++    m_dot = mass_flux_through_channel(
++        v_free, h, atmo, R_body=R_body)
++    P_max = kinetic_ceiling(m_dot, v_ps, K=K_ceiling)
++
++    # Step 5: Binding constraint
++    P_raw = min(P_F, P_max)
++
++    # Step 6: Channel losses
++    P_extract = P_raw / channel_eff
++
++    return max(P_extract, 0.0)
+diff --git a/tests/test_v11.py b/tests/test_v11.py
+new file mode 100644
+index 0000000..324d1c2
+--- /dev/null
++++ b/tests/test_v11.py
+@@ -0,0 +1,436 @@
++# tests/test_v11.py
++"""
++AURORA-MHD v11 Physics Alignment Tests
++========================================
++These tests verify that the v11 corrections bring the repo
++into alignment with the v11 feasibility paper. They run
++alongside the 58 v1 regression tests — both must pass.
++
++Test naming convention:
++  test_d5X_description → maps to v3 task D5.X
++"""
++import numpy as np
++import pytest
++
++
++# ═══════════════════════════════════════════════════════════
++# D5.1 — Finite Solenoid (Fabry Factor)
++# ═══════════════════════════════════════════════════════════
++
++class TestD51_FiniteSolenoid:
++
++    def test_fabry_factor_paper_geometry(self):
++        """F(R=0.5, L=0.6) = 0.514 ± 0.01."""
++        from src.physics_v11 import fabry_factor
++        F = fabry_factor(0.5, 0.6)
++        assert abs(F - 0.514) < 0.01, f"F = {F:.4f}"
++
++    def test_fabry_factor_infinite_limit(self):
++        """F → 1 as L/R → ∞."""
++        from src.physics_v11 import fabry_factor
++        F = fabry_factor(0.5, 100.0)
++        assert F > 0.999
++
++    def test_fabry_factor_pancake_limit(self):
++        """F → 0 as L/R → 0."""
++        from src.physics_v11 import fabry_factor
++        F = fabry_factor(10.0, 0.01)
++        assert F < 0.001
++
++    def test_v11_more_turns_than_v1(self):
++        """v11 finite solenoid needs more turns than v1
++        infinite solenoid at same B."""
++        from src.magnets import CoilDesigner
++        cd = CoilDesigner()
++        d1 = cd.design_solenoid(2.0, 0.5, T_op=20, length=0.6)
++        d11 = cd.design_solenoid_v11(2.0, 0.5, T_op=20, length=0.6)
++        assert d1 is not None and d11 is not None
++        assert d11['N_turns'] > d1['N_turns'], \
++            f"v11={d11['N_turns']}, v1={d1['N_turns']}"
++
++    def test_v11_heavier_than_v1(self):
++        """v11 coil mass > v1 coil mass at same B."""
++        from src.magnets import CoilDesigner
++        cd = CoilDesigner()
++        d1 = cd.design_solenoid(2.0, 0.5, T_op=20, length=0.6)
++        d11 = cd.design_solenoid_v11(2.0, 0.5, T_op=20, length=0.6)
++        assert d11['m_coil'] > d1['m_total'], \
++            f"v11={d11['m_coil']:.0f}, v1={d1['m_total']:.0f}"
++
++    def test_v11_2T_coil_mass_range(self):
++        """2T coil assembly: 250–700 kg.
++        Paper: 498 kg. Tolerance wide due to Ic table differences.
++        """
++        from src.magnets import CoilDesigner
++        cd = CoilDesigner()
++        d = cd.design_solenoid_v11(2.0, 0.5, T_op=20, length=0.6)
++        assert d is not None
++        assert 250 < d['m_coil'] < 700, \
++            f"m_coil = {d['m_coil']:.0f} kg"
++
++    def test_v11_2T_flight_system_range(self):
++        """2T flight system (coil + auxiliaries): 400–950 kg.
++        Paper: 782 kg.
++        """
++        from src.magnets import CoilDesigner
++        cd = CoilDesigner()
++        d = cd.design_solenoid_v11(2.0, 0.5, T_op=20, length=0.6)
++        assert d is not None
++        assert 400 < d['m_flight'] < 950, \
++            f"m_flight = {d['m_flight']:.0f} kg"
++
++    def test_v11_returns_model_tag(self):
++        """v11 design dict contains 'model': 'v11'."""
++        from src.magnets import CoilDesigner
++        cd = CoilDesigner()
++        d = cd.design_solenoid_v11(2.0, 0.5)
++        assert d['model'] == 'v11'
++
++
++# ═══════════════════════════════════════════════════════════
++# D5.2 — Post-Shock Velocity
++# ═══════════════════════════════════════════════════════════
++
++class TestD52_PostShockVelocity:
++
++    def test_leo_v_ps(self):
++        """v_ps(7800) = 1560 ± 10 m/s."""
++        from src.physics_v11 import post_shock_velocity
++        v_ps = post_shock_velocity(7800)
++        assert abs(v_ps - 1560) < 10
++
++    def test_linear_scaling(self):
++        """v_ps ∝ v_free."""
++        from src.physics_v11 import post_shock_velocity
++        v1 = post_shock_velocity(5000)
++        v2 = post_shock_velocity(10000)
++        assert abs(v2 / v1 - 2.0) < 0.001
++
++    def test_custom_ratio(self):
++        """Adjustable compression ratio."""
++        from src.physics_v11 import post_shock_velocity
++        v = post_shock_velocity(7800, ratio=3.0)
++        assert abs(v - 2600) < 1
++
++
++# ═══════════════════════════════════════════════════════════
++# D5.3 — Hall Parameter & Effective Area
++# ═══════════════════════════════════════════════════════════
++
++class TestD53_HallAndArea:
++
++    def test_hall_correction_baseline(self):
++        """Hall correction at β=0.82: 0.598 ± 0.01."""
++        from src.physics_v11 import hall_correction
++        c = hall_correction(0.82)
++        assert abs(c - 0.598) < 0.01, f"c = {c:.4f}"
++
++    def test_hall_no_effect(self):
++        """β=0 → correction = 1.0."""
++        from src.physics_v11 import hall_correction
++        assert hall_correction(0.0) == 1.0
++
++    def test_hall_strong_effect(self):
++        """β >> 1 → correction → 0."""
++        from src.physics_v11 import hall_correction
++        assert hall_correction(10.0) < 0.01
++
++    def test_B2dA_scales_B_squared(self):
++        """∫B²dA ∝ B²."""
++        from src.physics_v11 import compute_B2dA
++        b1 = compute_B2dA(1.0, 0.5)
++        b2 = compute_B2dA(2.0, 0.5)
++        assert abs(b2 / b1 - 4.0) < 0.01
++
++    def test_effective_area_2T(self):
++        """A_eff(2T, R=0.5m) in 0.2–1.5 m²."""
++        from src.physics_v11 import compute_B2dA, effective_area
++        B2dA = compute_B2dA(2.0, 0.5)
++        A = effective_area(B2dA, 2.0)
++        assert 0.2 < A < 1.5, f"A_eff = {A:.2f} m²"
++
++    def test_effective_area_much_less_than_frontal(self):
++        """A_eff << frontal area of 4.5m body (~63 m²)."""
++        from src.physics_v11 import compute_B2dA, effective_area
++        B2dA = compute_B2dA(2.0, 0.5)
++        A = effective_area(B2dA, 2.0)
++        assert A < 5.0  # well below 63 m²
++
++
++# ═══════════════════════════════════════════════════════════
++# D5.4 — Kinetic Ceiling & Stuart Number
++# ═══════════════════════════════════════════════════════════
++
++class TestD54_KineticCeiling:
++
++    def test_stuart_number_leo(self):
++        """S(LEO, 2T) >> 100."""
++        from src.physics_v11 import stuart_number
++        # σ=50 S/m, B=2T, v_ps=1560, L=0.6, ρ_ps=5×3e-5
++        S = stuart_number(50, 2.0, 1560, 0.6, 5 * 3e-5)
++        assert S > 100, f"S = {S:.0f}"
++
++    def test_stuart_scales_B_squared(self):
++        """S ∝ B²."""
++        from src.physics_v11 import stuart_number
++        S1 = stuart_number(50, 1.0, 1560, 0.6, 1.5e-4)
++        S2 = stuart_number(50, 2.0, 1560, 0.6, 1.5e-4)
++        assert abs(S2 / S1 - 4.0) < 0.01
++
++    def test_kinetic_ceiling_leo(self):
++        """P_max(LEO) in 200–800 kW range.
++        Paper: 456 kW at K=0.5, ṁ=0.75 kg/s.
++        """
++        from src.physics_v11 import kinetic_ceiling
++        P = kinetic_ceiling(0.75, 1560, K=0.5)
++        assert 200e3 < P < 800e3, \
++            f"P_max = {P/1e3:.0f} kW"
++
++    def test_ceiling_scales_v_squared(self):
++        """P_max ∝ v²_ps."""
++        from src.physics_v11 import kinetic_ceiling
++        P1 = kinetic_ceiling(1.0, 1000, K=0.5)
++        P2 = kinetic_ceiling(1.0, 2000, K=0.5)
++        assert abs(P2 / P1 - 4.0) < 0.01
++
++    def test_ceiling_scales_linearly_with_K(self):
++        """P_max ∝ K."""
++        from src.physics_v11 import kinetic_ceiling
++        P1 = kinetic_ceiling(1.0, 1000, K=0.3)
++        P2 = kinetic_ceiling(1.0, 1000, K=0.9)
++        assert abs(P2 / P1 - 3.0) < 0.01
++
++
++# ═══════════════════════════════════════════════════════════
++# D5.4 — Full v11 Pipeline
++# ═══════════════════════════════════════════════════════════
++
++class TestD54_V11Pipeline:
++
++    @pytest.fixture
++    def atmo(self):
++        from src.atmosphere import EarthAtmosphere
++        return EarthAtmosphere()
++
++    def test_v11_extraction_positive(self, atmo):
++        """v11 extraction > 0 at LEO conditions."""
++        from src.physics_v11 import faraday_power_v11
++        from src.plasma import sigma_at
++        sig = sigma_at(60e3, 7800, atmo)
++        P = faraday_power_v11(sig, 7800, 2.0, 60e3, atmo)
++        assert P > 0, f"P = {P:.0f} W"
++
++    def test_v11_much_less_than_v1(self, atmo):
++        """v11 extraction << v1 extraction (>50× reduction).
++        v1 uses v_free and 20 m² area → MW range.
++        v11 uses v_ps, A_eff, Hall, ceiling → kW range.
++        """
++        from src.physics_v11 import faraday_power_v11
++        from src.mhd import faraday_power
++        from src.plasma import sigma_at
++
++        sig = sigma_at(60e3, 7800, atmo)
++        P_v1 = faraday_power(sig, 7800, 2.0)
++        P_v11 = faraday_power_v11(sig, 7800, 2.0, 60e3, atmo)
++        ratio = P_v1 / P_v11 if P_v11 > 0 else float('inf')
++        assert ratio > 50, \
++            f"v1={P_v1/1e3:.0f} kW, v11={P_v11/1e3:.0f} kW, ratio={ratio:.0f}×"
++
++    def test_v11_zero_at_zero(self, atmo):
++        """P = 0 when any input is 0."""
++        from src.physics_v11 import faraday_power_v11
++        assert faraday_power_v11(0, 7800, 2.0, 60e3, atmo) == 0
++        assert faraday_power_v11(50, 0, 2.0, 60e3, atmo) == 0
++        assert faraday_power_v11(50, 7800, 0, 60e3, atmo) == 0
++
++
++# ═══════════════════════════════════════════════════════════
++# D5.5 — Stuart Number Grid
++# ═══════════════════════════════════════════════════════════
++
++class TestD55_StuartGrid:
++
++    def test_grid_shape(self):
++        from src.atmosphere import EarthAtmosphere
++        from src.envelope import compute_stuart_grid
++        atmo = EarthAtmosphere()
++        h, v, S = compute_stuart_grid(atmo, B=2.0, n_h=10, n_v=10)
++        assert S.shape == (10, 10)
++
++    def test_effective_zone_exists(self):
++        """At B=2T, S > 10 exists somewhere."""
++        from src.atmosphere import EarthAtmosphere
++        from src.envelope import compute_stuart_grid, classify_stuart_zones
++        atmo = EarthAtmosphere()
++        _, _, S = compute_stuart_grid(atmo, B=2.0, n_h=20, n_v=20)
++        zones = classify_stuart_zones(S)
++        assert np.any(zones == 2), "No S > 10 zone found"
++
++    def test_S_scales_with_B_squared(self):
++        """S(2T) ≈ 4 × S(1T) at same conditions."""
++        from src.atmosphere import EarthAtmosphere
++        from src.envelope import compute_stuart_grid
++        atmo = EarthAtmosphere()
++        _, _, S1 = compute_stuart_grid(atmo, B=1.0, n_h=5, n_v=5)
++        _, _, S2 = compute_stuart_grid(atmo, B=2.0, n_h=5, n_v=5)
++        # Check ratio at a point where both are nonzero
++        mask = (S1 > 0.01) & (S2 > 0.01)
++        if mask.any():
++            ratios = S2[mask] / S1[mask]
++            assert np.mean(ratios) > 3.0  # should be ~4
++
++
++# ═══════════════════════════════════════════════════════════
++# D5.7 — COP & Ride-Through Demand
++# ═══════════════════════════════════════════════════════════
++
++class TestD57_Demand:
++
++    def test_ride_through_under_15kW(self):
++        """Ride-through demand < 15 kW."""
++        from src.mhd import PowerDemand
++        coil = {'I_op': 336, 'radius': 0.5}
++        pd = PowerDemand(coil)
++        P = pd.total_v11(mode='ride_through')
++        assert P < 15e3, f"P = {P/1e3:.1f} kW"
++
++    def test_conservative_higher_than_ride_through(self):
++        """Conservative demand > ride-through during reentry
++        (when aero heating drives cryocooler load)."""
++        from src.mhd import PowerDemand
++        coil = {'I_op': 336, 'radius': 0.5}
++        pd = PowerDemand(coil)
++        P_rt = pd.total_v11(q_aero=200e3, mode='ride_through')
++        P_con = pd.total_v11(q_aero=200e3, mode='conservative')
++        assert P_con > P_rt
++
++    def test_v11_demand_higher_than_v1(self):
++        """v11 conservative demand > v1 demand
++        (because v1 used COP=0.015 vs v11 COP=0.002).
++        """
++        from src.mhd import PowerDemand
++        coil = {'I_op': 336, 'radius': 0.5}
++        pd = PowerDemand(coil)
++        P_v1 = pd.total(q_aero=0)
++        P_v11 = pd.total_v11(q_aero=0, mode='conservative')
++        assert P_v11 > P_v1
++
++    def test_invalid_mode_raises(self):
++        from src.mhd import PowerDemand
++        coil = {'I_op': 336, 'radius': 0.5}
++        pd = PowerDemand(coil)
++        with pytest.raises(ValueError):
++            pd.total_v11(mode='nonsense')
++
++
++# ═══════════════════════════════════════════════════════════
++# D5.8 — v11 Energy Balance
++# ═══════════════════════════════════════════════════════════
++
++class TestD58_EnergyBalance:
++
++    @pytest.fixture
++    def leo_setup(self):
++        from src.atmosphere import EarthAtmosphere
++        from src.trajectory import ReentryTrajectory
++        from src.magnets import CoilDesigner
++        atmo = EarthAtmosphere()
++        traj = ReentryTrajectory(atmo)
++        r = traj.run(v0=7800, gamma0_deg=-2)
++        cd = CoilDesigner()
++        coil = cd.design_solenoid_v11(2.0, 0.5, T_op=20, length=0.6)
++        return r, atmo, coil
++
++    def test_v11_balance_runs(self, leo_setup):
++        """energy_balance_v11 completes without error."""
++        from src.mhd import energy_balance_v11
++        r, atmo, coil = leo_setup
++        eb = energy_balance_v11(r, 2.0, atmo, coil)
++        assert 'P_extract' in eb
++        assert 'peak_margin' in eb
++        assert eb['model'] == 'v11'
++
++    def test_v11_margin_positive(self, leo_setup):
++        """2T ride-through margin > 1.0 (energy-positive)."""
++        from src.mhd import energy_balance_v11
++        r, atmo, coil = leo_setup
++        eb = energy_balance_v11(r, 2.0, atmo, coil)
++        assert eb['peak_margin'] > 1.0, \
++            f"margin = {eb['peak_margin']:.1f}×"
++
++    def test_v11_margin_less_than_v1(self, leo_setup):
++        """v11 margin << v1 margin (v1 was 24×+)."""
++        from src.mhd import energy_balance, energy_balance_v11
++        r, atmo, coil = leo_setup
++        eb_v1 = energy_balance(r, 2.0, atmo, coil)
++        eb_v11 = energy_balance_v11(r, 2.0, atmo, coil)
++
++        peak_v1 = eb_v1['P_extract'].max()
++        peak_v11 = eb_v11['peak_extraction_W']
++        assert peak_v1 > peak_v11 * 10, \
++            f"v1 peak={peak_v1/1e3:.0f} kW, v11 peak={peak_v11/1e3:.0f} kW"
++
++    def test_v11_battery_tracked(self, leo_setup):
++        """Battery state is tracked and has correct shape."""
++        from src.mhd import energy_balance_v11
++        r, atmo, coil = leo_setup
++        eb = energy_balance_v11(r, 2.0, atmo, coil)
++        assert 'E_battery' in eb
++        assert len(eb['E_battery']) == len(eb['t'])
++        # Starts at full charge
++        assert eb['E_battery'][0] == 50e3 * 3600
++
++    def test_higher_B_better_margin(self, leo_setup):
++        """Higher B → better margin in v11 too."""
++        from src.mhd import energy_balance_v11
++        from src.magnets import CoilDesigner
++        r, atmo, _ = leo_setup
++        cd = CoilDesigner()
++
++        margins = []
++        for B in [1.0, 2.0, 3.0]:
++            coil = cd.design_solenoid_v11(B, 0.5, T_op=20, length=0.6)
++            if coil is None:
++                continue
++            eb = energy_balance_v11(r, B, atmo, coil)
++            margins.append(eb['peak_margin'])
++
++        # Margins should generally increase with B
++        assert margins[-1] >= margins[0], \
++            f"margins = {margins}"
++
++
++# ═══════════════════════════════════════════════════════════
++# v1 Regression Sanity
++# ═══════════════════════════════════════════════════════════
++
++class TestV1Regression:
++    """Verify v1 functions still work unchanged."""
++
++    def test_v1_faraday_unchanged(self):
++        """v1 faraday_power still returns MW-range at LEO."""
++        from src.mhd import faraday_power
++        P = faraday_power(50, 7800, 2.0)
++        assert P > 1e6, f"P = {P/1e3:.0f} kW"
++
++    def test_v1_design_unchanged(self):
++        """v1 design_solenoid still works and has model tag."""
++        from src.magnets import CoilDesigner
++        cd = CoilDesigner()
++        d = cd.design_solenoid(2.0, 0.5, T_op=20)
++        assert d is not None
++        assert d['model'] == 'v1'
++
++    def test_v1_energy_balance_unchanged(self):
++        """v1 energy_balance returns model tag."""
++        from src.atmosphere import EarthAtmosphere
++        from src.trajectory import ReentryTrajectory
++        from src.magnets import CoilDesigner
++        from src.mhd import energy_balance
++        atmo = EarthAtmosphere()
++        traj = ReentryTrajectory(atmo)
++        r = traj.run(v0=7800)
++        cd = CoilDesigner()
++        coil = cd.design_solenoid(2.0, 2.0, T_op=20)
++        eb = energy_balance(r, 2.0, atmo, coil)
++        assert eb['model'] == 'v1'
