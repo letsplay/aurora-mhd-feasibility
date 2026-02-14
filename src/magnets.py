@@ -233,7 +233,76 @@ class CoilDesigner:
             'm_total': m_total,
             'Ic_margin': I_op / Ic_at_target,
             'feasible': True,
+            'model': 'v1',
         }
+
+    def design_solenoid_v11(self, B_target, radius,
+                            T_op=20.0, length=0.6):
+        """v11: Finite solenoid with Fabry correction.
+
+        Key differences from v1:
+          - Fabry factor F = L/√(L²+4R²) corrects for
+            finite length (F=0.514 at R=0.5m, L=0.6m)
+          - K_STRUCT = 1.0 (paper uses 1:1 not 2:1)
+          - Flight system adds 85 kg electronics + 20 kg harness
+
+        For R=0.5m, L=0.6m, 2T: expect ~400-600 kg coil assembly
+        (paper: 498 kg) and ~600-950 kg flight system (paper: 782 kg).
+
+        Note: code uses SuperPower published Ic table which may
+        differ from paper's conservative derating. Test tolerance
+        is ±30% to accommodate this.
+        """
+        from src.physics_v11 import fabry_factor
+
+        tape = self.tape
+        Ic_at_target = float(
+            np.squeeze(tape.Ic(B_target, T_op)))
+        if Ic_at_target < 10.0:
+            return None
+
+        I_op = 0.8 * Ic_at_target
+        F = fabry_factor(radius, length)
+        n = B_target / (MU_0 * I_op * F)  # turns/m
+        N_turns = int(np.ceil(n * length))
+
+        circumference = 2 * np.pi * radius
+        tape_length = N_turns * circumference
+        m_tape = tape_length * tape.mass_per_meter()
+
+        # v11: structural ratio 1:1 (not 2:1)
+        K_STRUCT_V11 = 1.0
+        m_struct = m_tape * K_STRUCT_V11
+
+        cryo_area = (2 * np.pi * (radius + 0.05)
+                     * (length + 0.1))
+        m_cryo = cryo_area * self.CRYO_SURFACE
+        m_coil = m_tape + m_struct + m_cryo + self.CRYO_HEAD
+
+        # Flight system auxiliaries (v11 §2.1)
+        P_ELEC = 85.0    # kg: control + power conditioning
+        HARNESS = 20.0    # kg: cable harness
+        m_flight = m_coil + P_ELEC + HARNESS
+
+        return {
+            'B_target': B_target,
+            'radius': radius,
+            'T_op': T_op,
+            'length': length,
+            'N_turns': N_turns,
+            'I_op': I_op,
+            'fabry_F': F,
+            'm_tape': m_tape,
+            'm_struct': m_struct,
+            'm_cryo': m_cryo,
+            'm_coil': m_coil,
+            'm_flight': m_flight,
+            'K_struct': K_STRUCT_V11,
+            'Ic_margin': I_op / Ic_at_target,
+            'feasible': True,
+            'model': 'v11',
+        }
+
         # src/magnets.py (continued)
 import pandas as pd
 from itertools import product
