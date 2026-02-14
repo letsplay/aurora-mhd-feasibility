@@ -294,8 +294,12 @@ def faraday_power_v11(sigma, v_free, B, h, atmo,
     P_F = p_density * delta * A_eff * hall_correction(beta_eff)
 
     # Step 4: Kinetic ceiling
-    m_dot = mass_flux_through_channel(
-        v_free, h, atmo, R_body=R_body)
+    # Mass flux through the MHD extraction channel only,
+    # NOT the full vehicle frontal area. The flow that
+    # contributes kinetic energy to extraction is bounded
+    # by A_eff — the area where B is strong enough.
+    rho = atmo.density(h)
+    m_dot = rho * v_free * A_eff
     P_max = kinetic_ceiling(m_dot, v_ps, K=K_ceiling)
 
     # Step 5: Binding constraint
