@@ -2,7 +2,7 @@
 
 **Can magnetohydrodynamic thermal protection be self-sustaining for Starship reentry? I built the models to find out.**
 
-![Operating Envelope](results/figures/d3_envelope.png)
+![Operating Envelope](results/figures/d3_envelope_v11.png)
 
 ## Key Results
 
